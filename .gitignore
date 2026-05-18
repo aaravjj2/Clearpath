@@ -1,53 +1,124 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# =============================================================
+# ClearPath — root .gitignore (covers frontend + backend + misc)
+# =============================================================
 
-# dependencies
-node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files
-.env*.local
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# python
+# ── Python / Backend ─────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
 .venv/
 venv/
 ENV/
 env/
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Test & coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+*.lcov
+nosetests.xml
+test-results/
+junit.xml
+
+# Ruff / linters
+.ruff_cache/
+
+# Logs
 *.log
+backend.log
+frontend.log
+test_out.txt
+
+# Chroma vector store on disk
 chroma_db/
+chromadb_data/
+
+# Type stubs
+*.pyi.bak
+
+# ── Node / Frontend ──────────────────────────────────────────
+node_modules/
+/.pnp
+.pnp.js
+.yarn/
+
+# Next.js
+.next/
+out/
+/build
+
+# Package manager locks (keep package-lock.json, ignore yarn.lock if using npm)
+yarn.lock
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Playwright test results / artifacts (keep spec files, ignore run output)
+test-results/
+playwright-report/
+frontend/tests/e2e/test-results/
+artifacts/playwright_results/
+artifacts/playwright_run.log
+artifacts/playwright_final_*.json
+artifacts/playwright_baseline.json
+artifacts/playwright_*.json
+
+# ── IDE / Editor ─────────────────────────────────────────────
+.DS_Store
+*.pem
+.vscode/settings.json
+.vscode/*.code-workspace
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# ── TypeScript ───────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Vercel / Deployment ──────────────────────────────────────
+.vercel
+
+# ── Artifacts (keep plans, reports, screenshots; ignore raw analysis output) ─
+artifacts/ruff_report.json
+artifacts/eslint_report.json
+artifacts/typecheck_report.txt
+artifacts/pip_outdated.json
+artifacts/npm_outdated.json
+artifacts/pytest_baseline.json
+artifacts/shell_test.txt
+
+# Keep these committed:
+# artifacts/loop_log.jsonl
+# artifacts/compact_summary.md
+# artifacts/plans/
+# artifacts/reports/
+# artifacts/screenshots/ (empty dir via .gitkeep)
+
+# ── Secrets ──────────────────────────────────────────────────
+*.pem
+*.p12
+*.key
+credentials.json
+service-account*.json

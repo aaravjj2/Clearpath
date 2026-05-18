@@ -1,1 +1,1 @@
-
+"""ClearPath backend models package."""

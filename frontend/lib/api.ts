@@ -1,4 +1,5 @@
 import { ChatMessage, Clause, RiskScore } from "@/types";
+import { parseApiError } from "@/lib/errors";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -8,7 +9,10 @@ export async function uploadDocument(file?: File, text?: string): Promise<{ docu
   if (text) form.append("text", text);
 
   const res = await fetch(`${API_BASE}/api/documents/upload`, { method: "POST", body: form });
-  if (!res.ok) throw new Error("Upload failed");
+  if (!res.ok) {
+    const err = await parseApiError(res);
+    throw new Error(err.detail ?? err.message);
+  }
   return res.json();
 }
 
@@ -45,6 +49,9 @@ export async function askQuestion(documentId: string, message: string, history: 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ document_id: documentId, message, history })
   });
-  if (!res.ok) throw new Error("Chat failed");
+  if (!res.ok) {
+    const err = await parseApiError(res);
+    throw new Error(err.detail ?? err.message);
+  }
   return res.json() as Promise<{ answer: string; cited_clause_id?: string }>;
 }

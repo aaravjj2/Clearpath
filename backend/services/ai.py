@@ -55,12 +55,37 @@ Return ONLY valid JSON:
 
 
 def _extract_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text.strip())
+    """
+    Robustly extract the first JSON object from a model response.
+
+    Handles:
+    - Bare JSON
+    - Markdown code fences (```json ... ```)
+    - Extra prose before/after the JSON block
+    - BOM characters
+    - Trailing commas (best-effort via regex)
+    """
+    import re
+
+    text = raw.strip().lstrip("\ufeff")  # strip BOM
+
+    # Try unwrapping markdown fences first
+    fence_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    else:
+        # Find the first '{' and last '}' to extract the JSON object
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Last resort: strip trailing commas before } or ]
+        cleaned = re.sub(r",\s*([\]}])", r"\1", text)
+        return json.loads(cleaned)
 
 
 async def analyze_clause(

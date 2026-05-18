@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Head from "next/head";
 import { streamAnalysis } from "@/lib/api";
 import { Clause, RiskScore } from "@/types";
 import ClauseCard from "@/components/ClauseCard";
@@ -9,7 +10,8 @@ import RedFlagPanel from "@/components/RedFlagPanel";
 import RiskGauge from "@/components/RiskGauge";
 import ChatPanel from "@/components/ChatPanel";
 import StreamingLoader from "@/components/StreamingLoader";
-import { AlertTriangle, FileText, MessageSquare, Shield } from "lucide-react";
+import ProgressBar from "@/components/ProgressBar";
+import { AlertTriangle, ArrowLeft, FileText, MessageSquare, Shield } from "lucide-react";
 
 type Tab = "clauses" | "redflags" | "chat";
 
@@ -19,7 +21,17 @@ export default function AnalyzePage() {
   const [riskScore, setRiskScore] = useState<RiskScore | null>(null);
   const [progress, setProgress] = useState(0);
   const [complete, setComplete] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [filename, setFilename] = useState<string>("Document");
   const [tab, setTab] = useState<Tab>("redflags");
+
+  useEffect(() => {
+    // Fetch filename for page title
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/documents/${docId}/summary`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.filename) setFilename(data.filename); })
+      .catch(() => {});
+  }, [docId]);
 
   useEffect(() => {
     const cleanup = streamAnalysis(
@@ -30,31 +42,53 @@ export default function AnalyzePage() {
       },
       setRiskScore,
       () => setComplete(true),
-      (err) => console.error(err)
+      (err) => {
+        console.error("Stream error:", err);
+        setStreamError(err);
+      }
     );
     return () => cleanup();
   }, [docId]);
 
+  // Scroll to top of content when switching tabs
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [tab]);
+
   const redFlags = clauses.filter((c) => c.red_flag !== null);
 
   return (
+    <>
+      <title>{`${filename} — ClearPath Analysis`}</title>
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8 gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">Document Analysis</h1>
+          <div className="flex items-start gap-3">
+            <a
+              href="/"
+              aria-label="Back to home"
+              className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </a>
+            <div>
+              <h1 className="text-2xl font-bold">Document Analysis</h1>
+              <p className="text-xs text-slate-600 mt-0.5 truncate max-w-xs" title={filename}>{filename}</p>
+            </div>
+          </div>
             <p className="text-slate-400 text-sm mt-1">{complete ? `${clauses.length} clauses analyzed` : `Analyzing… ${Math.round(progress * 100)}%`}</p>
           </div>
           {riskScore && <RiskGauge score={riskScore.overall} />}
         </div>
 
-        {!complete && (
-          <div className="mb-8">
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${progress * 100}%` }} />
-            </div>
+        {streamError && (
+          <div role="alert" className="mb-6 flex items-start gap-3 bg-red-950 border border-red-800 text-red-300 rounded-xl px-4 py-3 text-sm">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+            <span><strong>Analysis error:</strong> {streamError}</span>
           </div>
         )}
+
+        {!streamError && <ProgressBar value={progress} complete={complete} />}
 
         <div className="flex gap-1 mb-6 bg-slate-900 rounded-xl p-1 w-fit border border-slate-800">
           {([
@@ -119,5 +153,6 @@ export default function AnalyzePage() {
         </div>
       </div>
     </main>
+    </>
   );
 }

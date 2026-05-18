@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadDocument } from "@/lib/api";
+import { friendlyError } from "@/lib/errors";
 import UploadZone from "@/components/UploadZone";
 import { AlertTriangle, ArrowRight, FileText, Scale, Shield } from "lucide-react";
 
@@ -20,8 +21,8 @@ export default function HomePage() {
       try {
         const { document_id } = await uploadDocument(file);
         router.push(`/analyze/${document_id}`);
-      } catch {
-        setError("Upload failed. Please try again.");
+      } catch (err) {
+        setError(friendlyError(err));
         setLoading(false);
       }
     },
@@ -35,8 +36,8 @@ export default function HomePage() {
     try {
       const { document_id } = await uploadDocument(undefined, text);
       router.push(`/analyze/${document_id}`);
-    } catch {
-      setError("Submission failed. Please try again.");
+    } catch (err) {
+      setError(friendlyError(err));
       setLoading(false);
     }
   };
@@ -96,29 +97,82 @@ export default function HomePage() {
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim() && !loading) {
+                    e.preventDefault();
+                    handleText();
+                  }
+                }}
                 placeholder="Paste your contract, lease, or any legal document text here..."
+                aria-label="Paste legal document text"
+                aria-describedby="paste-hint"
+                maxLength={500000}
                 className="w-full h-48 bg-slate-800 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-blue-500"
               />
+              <div id="paste-hint" className="sr-only">Press Ctrl+Enter to analyze</div>
+              <div className="flex items-center justify-between mt-1.5">
+                <span
+                  className={`text-xs tabular-nums ${
+                    text.length > 450000
+                      ? "text-red-400 font-semibold"
+                      : text.length > 400000
+                      ? "text-amber-400"
+                      : "text-slate-600"
+                  }`}
+                  aria-live="polite"
+                >
+                  {text.length.toLocaleString()} / 500,000 characters
+                </span>
+              </div>
               <button
                 onClick={handleText}
                 disabled={!text.trim() || loading}
-                className="mt-3 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-all"
+                className="mt-2 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-all"
               >
                 Analyze document <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          {loading && <p className="text-center text-blue-400 mt-4 text-sm animate-pulse">Uploading and preparing analysis...</p>}
-          {error && <p className="text-center text-red-400 mt-4 text-sm">{error}</p>}
+          {loading && (
+            <p className="text-center text-blue-400 mt-4 text-sm animate-pulse" aria-live="polite">
+              Uploading and preparing analysis…
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="text-center text-red-400 mt-4 text-sm flex items-center justify-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              {error}
+            </p>
+          )}
         </div>
 
         <div className="mt-6">
           <p className="text-slate-500 text-sm mb-3">Try an example:</p>
           <div className="flex gap-3 flex-wrap">
-            {["Sample Lease Agreement", "Employment Contract", "Freelance Contract"].map((ex) => (
-              <button key={ex} className="text-xs border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 rounded-lg px-3 py-1.5 transition-all">
-                {ex}
+            {[
+              {
+                name: "Sample Lease Agreement",
+                content: "1. Rent. Tenant shall pay Landlord rent in the amount of $1,500 per month.\n2. Maintenance. Tenant is responsible for all structural repairs.\n3. Early Termination. Tenant forfeits all deposits and owes remaining rent if they leave early."
+              },
+              {
+                name: "Employment Contract",
+                content: "1. Non-Compete. Employee agrees not to work for any competitor globally for 5 years after termination.\n2. At-Will. Employment may be terminated at any time without notice.\n3. IP Assignment. All intellectual property created by Employee at any time belongs to Employer."
+              },
+              {
+                name: "Freelance Contract",
+                content: "1. Payment. Client will pay Freelancer Net-90 days after invoice is received.\n2. Revisions. Unlimited revisions are included for the fixed price.\n3. Indemnity. Freelancer indemnifies Client against any and all claims."
+              }
+            ].map((ex) => (
+              <button
+                key={ex.name}
+                onClick={() => {
+                  setTab("paste");
+                  setText(ex.content);
+                }}
+                className="text-xs border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 rounded-lg px-3 py-1.5 transition-all"
+              >
+                {ex.name}
               </button>
             ))}
           </div>

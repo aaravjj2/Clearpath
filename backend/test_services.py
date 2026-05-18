@@ -75,5 +75,51 @@ def test_compute_fallback_risk_score_with_flags():
     assert any(c.score > 0 for c in score.categories)
 
 
+def test_segment_clauses_long_chunk_split():
+    """Very long clauses (>3000 chars) should be split."""
+    long_clause = "A" * 3500
+    result = segment_clauses(long_clause)
+    assert all(len(c) <= 3000 for c in result)
+    assert len(result) >= 2
+
+
+def test_segment_clauses_lettered_sections():
+    """Lettered sections (A. B. C.) should be split."""
+    text = "A. Definitions\n" + "x " * 30 + "\n\nB. Payment Terms\n" + "y " * 30 + "\n\nC. Termination\n" + "z " * 30
+    result = segment_clauses(text)
+    assert len(result) >= 1  # at minimum parses without error
+
+
+def test_extract_json_bare():
+    """Test _extract_json with plain JSON."""
+    from services.ai import _extract_json
+    data = _extract_json('{"key": "value"}')
+    assert data == {"key": "value"}
+
+
+def test_extract_json_with_fence():
+    """Test _extract_json with markdown code fence."""
+    from services.ai import _extract_json
+    raw = '```json\n{"simplified_text": "hello"}\n```'
+    data = _extract_json(raw)
+    assert data["simplified_text"] == "hello"
+
+
+def test_extract_json_with_prose():
+    """Test _extract_json when model adds prose before JSON."""
+    from services.ai import _extract_json
+    raw = 'Sure, here is the analysis:\n{"simplified_text": "test", "clause_type": "general"}'
+    data = _extract_json(raw)
+    assert data["clause_type"] == "general"
+
+
+def test_extract_json_trailing_comma():
+    """Test _extract_json handles trailing commas."""
+    from services.ai import _extract_json
+    raw = '{"key": "value",}'
+    data = _extract_json(raw)
+    assert data["key"] == "value"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

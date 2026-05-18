@@ -19,6 +19,7 @@ import itertools
 import json
 import logging
 import os
+import random
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -519,6 +520,11 @@ class ProviderRegistry:
         return self.providers.get(name)
 
     def get_available_providers(self) -> List[Dict[str, Any]]:
+        """
+        Return provider info for health endpoints.
+        For Ollama, uses the cached availability flag (set by check_available())
+        rather than making a live HTTP call, to keep this method synchronous.
+        """
         result = []
         for pn in self.fallback_order:
             p = self.providers.get(pn)
@@ -529,8 +535,46 @@ class ProviderRegistry:
                     "models": p.list_models(),
                     "key_count": len(p._keys) if pn != ProviderName.OLLAMA else 0,
                     "is_local": pn == ProviderName.OLLAMA,
+                    "ollama_status": (
+                        "unchecked"
+                        if pn == ProviderName.OLLAMA and isinstance(p, OllamaProvider) and p._is_available is None
+                        else None
+                    ),
                 })
         return result
+
+    _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+    _MAX_RETRIES = 3
+    _BASE_DELAY = 1.0   # seconds
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        """Return True for transient errors that warrant a retry."""
+        msg = str(exc).lower()
+        return any(kw in msg for kw in ("timeout", "rate limit", "overloaded", "529", "503", "502"))
+
+    async def _complete_with_retry(
+        self,
+        provider_name: str,
+        p: "BaseProvider",
+        messages: List[ChatMessage],
+        model: Optional[str],
+        max_tokens: int,
+        temperature: float,
+    ) -> ChatCompletion:
+        """Attempt a provider with exponential backoff on transient errors."""
+        last_exc: Exception = RuntimeError("unknown")
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                return await p.complete(messages, model=model, max_tokens=max_tokens, temperature=temperature)
+            except Exception as exc:
+                last_exc = exc
+                if not self._is_retryable(exc) or attempt == self._MAX_RETRIES - 1:
+                    raise
+                delay = self._BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5)
+                logger.warning(f"Provider {provider_name} attempt {attempt+1} failed ({exc}); retrying in {delay:.1f}s")
+                await asyncio.sleep(delay)
+        raise last_exc
 
     async def complete(
         self,
@@ -541,7 +585,7 @@ class ProviderRegistry:
         temperature: float = 0.7,
     ) -> ChatCompletion:
         """
-        Run a chat completion with automatic fallback.
+        Run a chat completion with automatic fallback and per-provider retry.
         If a specific provider is requested, try only that one.
         Otherwise, try providers in fallback order.
         """
@@ -552,7 +596,7 @@ class ProviderRegistry:
                 pn = ProviderName(provider)
                 p = self.providers.get(pn)
                 if p and p.available:
-                    return await p.complete(messages, model=model, max_tokens=max_tokens, temperature=temperature)
+                    return await self._complete_with_retry(provider, p, messages, model, max_tokens, temperature)
             except (ValueError, Exception) as e:
                 errors.append(f"{provider}: {e}")
 
@@ -567,14 +611,16 @@ class ProviderRegistry:
                 if not is_avail:
                     continue
             try:
-                result = await p.complete(messages, model=model, max_tokens=max_tokens, temperature=temperature)
+                result = await self._complete_with_retry(pn.value, p, messages, model, max_tokens, temperature)
                 logger.info(f"Completed via {pn.value} ({result.model})")
                 return result
             except Exception as e:
                 errors.append(f"{pn.value}: {e}")
-                logger.warning(f"Provider {pn.value} failed: {e}")
+                logger.warning(f"Provider {pn.value} exhausted retries: {e}")
                 continue
 
+        if not errors:
+            raise RuntimeError("No AI providers are configured or available. Please click the gear icon to add an API key or start local Ollama.")
         raise RuntimeError(f"All providers failed: {'; '.join(errors)}")
 
 

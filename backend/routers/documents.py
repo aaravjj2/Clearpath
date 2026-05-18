@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -12,6 +14,9 @@ from services.vectorstore import index_document
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
+MAX_PDF_BYTES = 20 * 1024 * 1024   # 20 MB
+MAX_TEXT_CHARS = 500_000            # ~500 KB of plain text
+
 # In-memory store (use Redis/DB in production)
 documents: dict[str, DocumentAnalysis] = {}
 document_texts: dict[str, str] = {}
@@ -24,11 +29,22 @@ async def upload_document(file: UploadFile = File(None), text: str = Form(None))
 
     document_id = str(uuid.uuid4())
     if file:
+        # Validate content type before reading full body
+        ct = (file.content_type or "").lower()
+        if ct and ct not in {"application/pdf", "application/octet-stream", ""}:
+            raise HTTPException(415, "Only PDF files are accepted")
         content = await file.read()
+        if len(content) > MAX_PDF_BYTES:
+            raise HTTPException(413, f"PDF exceeds maximum size of {MAX_PDF_BYTES // (1024*1024)} MB")
+        # Quick magic-bytes check — PDF files start with %PDF
+        if content[:4] != b"%PDF":
+            raise HTTPException(415, "Uploaded file does not appear to be a valid PDF")
         raw_text = extract_text_from_pdf(content)
         filename = file.filename or "uploaded.pdf"
     else:
         raw_text = (text or "").strip()
+        if len(raw_text) > MAX_TEXT_CHARS:
+            raise HTTPException(413, f"Text exceeds maximum length of {MAX_TEXT_CHARS:,} characters")
         filename = "pasted_document.txt"
 
     if not raw_text:
@@ -51,6 +67,8 @@ async def stream_analysis(document_id: str):
     if document_id not in document_texts:
         raise HTTPException(404, "Document not found")
 
+    _PING_INTERVAL = 15  # seconds between SSE keepalive pings
+
     async def generate():
         raw_text = document_texts[document_id]
         clause_texts = segment_clauses(raw_text)
@@ -61,8 +79,14 @@ async def stream_analysis(document_id: str):
         all_clauses = []
         successful_texts = []
         clause_ids = []
+        last_ping = time.monotonic()
 
         for i, clause_text in enumerate(clause_texts):
+            # Send a keepalive comment if needed before waiting on AI
+            if time.monotonic() - last_ping >= _PING_INTERVAL:
+                yield ": keepalive\n\n"
+                last_ping = time.monotonic()
+
             try:
                 clause = await analyze_clause(clause_text, i)
                 all_clauses.append(clause)
@@ -75,6 +99,7 @@ async def stream_analysis(document_id: str):
                     "progress": (i + 1) / max(1, len(clause_texts))
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
+                last_ping = time.monotonic()
             except Exception as exc:
                 yield f"data: {json.dumps({'type': 'error', 'message': str(exc), 'index': i})}\n\n"
 
@@ -107,3 +132,15 @@ async def get_summary(document_id: str):
     if document_id not in documents:
         raise HTTPException(404, "Document not found")
     return documents[document_id]
+
+
+@router.delete("/{document_id}")
+async def delete_document(document_id: str):
+    """Delete a document and its vector index from in-memory stores."""
+    if document_id not in documents:
+        raise HTTPException(404, "Document not found")
+    documents.pop(document_id, None)
+    document_texts.pop(document_id, None)
+    from services.vectorstore import delete_document as vs_delete
+    vs_delete(document_id)
+    return {"status": "deleted", "document_id": document_id}
